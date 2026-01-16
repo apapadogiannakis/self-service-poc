@@ -1,4 +1,4 @@
-function NamespacesTable({ namespaces }) {
+function NamespacesTable({ namespaces, selectedNamespaces, onToggleNamespace, onSelectAll }) {
   const [filters, setFilters] = React.useState({
     name: "",
     clusters: "",
@@ -51,11 +51,31 @@ function NamespacesTable({ namespaces }) {
     );
   });
 
+  const allSelected = filteredKeys.length > 0 && filteredKeys.every((k) => {
+    const ns = namespaces[k];
+    const name = ns?.name || k;
+    return selectedNamespaces?.has(name);
+  });
+
   return (
     <div className="card">
       <table>
         <thead>
           <tr>
+            <th>
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={(e) => {
+                  const names = filteredKeys.map((k) => {
+                    const ns = namespaces[k];
+                    return ns?.name || k;
+                  });
+                  onSelectAll(e.target.checked, names);
+                }}
+                aria-label="Select all namespaces"
+              />
+            </th>
             <th>Name</th>
             <th>Clusters</th>
             <th>EgressIP</th>
@@ -64,6 +84,7 @@ function NamespacesTable({ namespaces }) {
             <th>Attributes</th>
           </tr>
           <tr>
+            <th></th>
             <th>
               <input
                 className="filterInput"
@@ -111,11 +132,11 @@ function NamespacesTable({ namespaces }) {
         <tbody>
           {keys.length === 0 ? (
             <tr>
-              <td colSpan={6} className="muted">No namespaces found.</td>
+              <td colSpan={7} className="muted">No namespaces found.</td>
             </tr>
           ) : filteredKeys.length === 0 ? (
             <tr>
-              <td colSpan={6} className="muted">No matches.</td>
+              <td colSpan={7} className="muted">No matches.</td>
             </tr>
           ) : (
             filteredKeys.map((k) => {
@@ -134,6 +155,14 @@ function NamespacesTable({ namespaces }) {
 
               return (
                 <tr key={name}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedNamespaces?.has(name) || false}
+                      onChange={(e) => onToggleNamespace(name, e.target.checked)}
+                      aria-label={`Select ${name}`}
+                    />
+                  </td>
                   <td>{name}</td>
                   <td>{clustersText}</td>
                   <td>{egressIpText}</td>
