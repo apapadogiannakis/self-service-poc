@@ -527,6 +527,60 @@ def get_namespaces(appname: str, env: Optional[str] = None):
     return NAMESPACES_BY_ENV_AND_APP.get(env, {}).get(appname, {})
 
 
+@router.delete("/apps/{appname}/namespaces")
+def delete_namespaces(appname: str, env: Optional[str] = None, namespaces: Optional[str] = None):
+    """Delete specific namespaces from an application
+
+    Args:
+        appname: The application name
+        env: The environment (dev/qa/prd)
+        namespaces: Comma-separated list of namespace names to delete
+    """
+    env = _require_env(env)
+
+    if not namespaces:
+        raise HTTPException(status_code=400, detail="namespaces parameter is required (comma-separated list)")
+
+    namespace_list = [ns.strip() for ns in namespaces.split(",") if ns.strip()]
+
+    if not namespace_list:
+        raise HTTPException(status_code=400, detail="No valid namespaces provided")
+
+    deleted_data = {
+        "appname": appname,
+        "env": env,
+        "requested_deletions": namespace_list,
+        "deleted_namespaces": [],
+        "not_found": []
+    }
+
+    # Check if app exists in this environment
+    if env not in NAMESPACES_BY_ENV_AND_APP or appname not in NAMESPACES_BY_ENV_AND_APP[env]:
+        deleted_data["not_found"] = namespace_list
+        return deleted_data
+
+    app_namespaces = NAMESPACES_BY_ENV_AND_APP[env][appname]
+
+    # Delete each namespace
+    for ns_name in namespace_list:
+        if ns_name in app_namespaces:
+            del app_namespaces[ns_name]
+            deleted_data["deleted_namespaces"].append(ns_name)
+        else:
+            deleted_data["not_found"].append(ns_name)
+
+    # If all namespaces are deleted, remove the app entry
+    if len(app_namespaces) == 0:
+        del NAMESPACES_BY_ENV_AND_APP[env][appname]
+        deleted_data["app_entry_removed"] = True
+
+    # Update totalns count in APPS_BY_ENV
+    if env in APPS_BY_ENV and appname in APPS_BY_ENV[env]:
+        APPS_BY_ENV[env][appname]["totalns"] = len(app_namespaces)
+
+    return deleted_data
+
+
 @router.get("/apps/{appname}/l4_ingress")
 def get_l4_ingress(appname: str, env: Optional[str] = None):
     env = _require_env(env)
@@ -538,6 +592,42 @@ def get_pull_requests(appname: str, env: Optional[str] = None):
     env = _require_env(env)
     return PULL_REQUESTS_BY_ENV_AND_APP.get(env, {}).get(appname, [])
 
+
+@router.delete("/apps/{appname}")
+def delete_app(appname: str, env: Optional[str] = None):
+    """Delete an application and all its associated data (namespaces, L4 ingress, pull requests)"""
+    env = _require_env(env)
+
+    deleted_data = {
+        "appname": appname,
+        "env": env,
+        "deleted": False,
+        "removed": {}
+    }
+
+    # Delete from APPS_BY_ENV
+    if env in APPS_BY_ENV and appname in APPS_BY_ENV[env]:
+        del APPS_BY_ENV[env][appname]
+        deleted_data["removed"]["app"] = True
+
+    # Delete from NAMESPACES_BY_ENV_AND_APP
+    if env in NAMESPACES_BY_ENV_AND_APP and appname in NAMESPACES_BY_ENV_AND_APP[env]:
+        namespaces = list(NAMESPACES_BY_ENV_AND_APP[env][appname].keys())
+        del NAMESPACES_BY_ENV_AND_APP[env][appname]
+        deleted_data["removed"]["namespaces"] = namespaces
+
+    # Delete from L4_INGRESS_BY_ENV_AND_APP
+    if env in L4_INGRESS_BY_ENV_AND_APP and appname in L4_INGRESS_BY_ENV_AND_APP[env]:
+        del L4_INGRESS_BY_ENV_AND_APP[env][appname]
+        deleted_data["removed"]["l4_ingress"] = True
+
+    # Delete from PULL_REQUESTS_BY_ENV_AND_APP
+    if env in PULL_REQUESTS_BY_ENV_AND_APP and appname in PULL_REQUESTS_BY_ENV_AND_APP[env]:
+        del PULL_REQUESTS_BY_ENV_AND_APP[env][appname]
+        deleted_data["removed"]["pull_requests"] = True
+
+    deleted_data["deleted"] = True
+    return deleted_data
 
 @router.get("/apps/{appname}/egress_ips")
 def get_egress_ips(appname: str, env: Optional[str] = None):

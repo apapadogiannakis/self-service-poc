@@ -62,11 +62,14 @@ function App() {
 
   const [apps, setApps] = React.useState({});
   const [clustersByApp, setClustersByApp] = React.useState({});
+  const [selectedNamespaces, setSelectedNamespaces] = React.useState(() => new Set());
   const [l4IpsByApp, setL4IpsByApp] = React.useState({});
   const [egressIpsByApp, setEgressIpsByApp] = React.useState({});
   const [selectedApps, setSelectedApps] = React.useState(new Set());
   const [view, setView] = React.useState("apps");
   const [detailAppName, setDetailAppName] = React.useState("");
+  const [detailNamespace, setDetailNamespace] = React.useState(null);
+  const [detailNamespaceName, setDetailNamespaceName] = React.useState("");
   const [namespaces, setNamespaces] = React.useState({});
   const [l4IngressItems, setL4IngressItems] = React.useState([]);
   const [egressIpItems, setEgressIpItems] = React.useState([]);
@@ -209,19 +212,6 @@ function App() {
 
   const appRows = Object.keys(apps).map((k) => apps[k]);
 
-  function requireExactlyOneSelectedApp() {
-    const selected = Array.from(selectedApps);
-    if (selected.length !== 1) {
-      setError("Select exactly one application.");
-      return null;
-    }
-    return selected[0];
-  }
-
-  function getDetailOrSelectedApp() {
-    if (detailAppName) return detailAppName;
-    return requireExactlyOneSelectedApp();
-  }
 
   async function openNamespaces(appname, push = true) {
     if (!appname) return;
@@ -234,6 +224,7 @@ function App() {
       setDetailAppName(appname);
       setNamespaces(resp || {});
       setL4IngressItems([]);
+      setSelectedNamespaces(new Set());
       setView("namespaces");
       if (push) pushUiUrl({ view: "namespaces", env: activeEnv, appname }, false);
     } catch (e) {
@@ -294,22 +285,13 @@ function App() {
     setDetailAppName("");
     setNamespaces({});
     setL4IngressItems([]);
+    setSelectedNamespaces(new Set());
     setEgressIpItems([]);
     setSelectedEgressIps(new Set());
     setError("");
     pushUiUrl({ view: "apps", env: activeEnv, appname: "" }, false);
   }
 
-  function onSelectAllFromFiltered(checked, appnames) {
-    if (checked) setSelectedApps(new Set(appnames));
-    else setSelectedApps(new Set());
-  }
-
-  async function onViewL4Ingress() {
-    const appname = getDetailOrSelectedApp();
-    if (!appname) return;
-    await openL4Ingress(appname, true);
-  }
 
   async function onViewEgressIps() {
     const appname = getDetailOrSelectedApp();
@@ -368,6 +350,169 @@ function App() {
     });
   }
 
+  function onSelectAllFromFiltered(checked, appnames) {
+    if (checked) setSelectedApps(new Set(appnames));
+    else setSelectedApps(new Set());
+  }
+
+  function toggleNamespace(namespace, checked) {
+    setSelectedNamespaces((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(namespace);
+      else next.delete(namespace);
+      return next;
+    });
+  }
+
+  function onSelectAllNamespaces(checked, namespaceNames) {
+    if (checked) setSelectedNamespaces(new Set(namespaceNames));
+    else setSelectedNamespaces(new Set());
+  }
+
+  function requireExactlyOneSelectedApp() {
+    const selected = Array.from(selectedApps);
+    if (selected.length !== 1) {
+      setError("Select exactly one application.");
+      return null;
+    }
+    return selected[0];
+  }
+
+  function getDetailOrSelectedApp() {
+    if (detailAppName) return detailAppName;
+    return requireExactlyOneSelectedApp();
+  }
+
+  async function onViewNamespaces() {
+    const appname = getDetailOrSelectedApp();
+    if (!appname) return;
+    await openNamespaces(appname, true);
+  }
+
+  async function onViewL4Ingress() {
+    const appname = getDetailOrSelectedApp();
+    if (!appname) return;
+    await openL4Ingress(appname, true);
+  }
+
+  function viewNamespaceDetails(namespaceName, namespaceData) {
+    setDetailNamespace(namespaceData);
+    setDetailNamespaceName(namespaceName);
+    setView("namespaceDetails");
+  }
+
+  function onBackFromNamespaceDetails() {
+    setDetailNamespace(null);
+    setDetailNamespaceName("");
+    setView("namespaces");
+  }
+
+  async function deleteNamespace(namespaceName) {
+    const appname = detailAppName;
+    if (!appname) {
+      setError("No application selected.");
+      return;
+    }
+
+    const confirmMsg = `Are you sure you want to delete namespace "${namespaceName}" from ${appname}?\n\nThis action cannot be undone.`;
+    if (!confirm(confirmMsg)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch(
+        `/api/apps/${encodeURIComponent(appname)}/namespaces?env=${encodeURIComponent(activeEnv)}&namespaces=${encodeURIComponent(namespaceName)}`,
+        { method: "DELETE", headers: { Accept: "application/json" } }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Failed to delete namespace: ${response.status} ${text}`);
+      }
+
+      await response.json();
+
+      // Refresh the namespaces list
+      const resp = await fetchJson(
+        `/api/apps/${encodeURIComponent(appname)}/namespaces?env=${encodeURIComponent(activeEnv)}`,
+      );
+      setNamespaces(resp || {});
+
+      // Refresh apps list to update totalns count
+      const appsResp = await fetchJson(`/api/apps?env=${encodeURIComponent(activeEnv)}`);
+      setApps(appsResp);
+
+      const nextClusters = {};
+      for (const [appname, app] of Object.entries(appsResp || {})) {
+        nextClusters[appname] = Array.isArray(app?.clusters) ? app.clusters.map(String) : [];
+      }
+      setClustersByApp(nextClusters);
+
+      setError("");
+    } catch (e) {
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteApp(appname) {
+    const confirmMsg = `Are you sure you want to delete app "${appname}"?\n\nThis will remove all associated namespaces, L4 ingress IPs, and pull requests.\n\nThis action cannot be undone.`;
+    if (!confirm(confirmMsg)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch(
+        `/api/apps/${encodeURIComponent(appname)}?env=${encodeURIComponent(activeEnv)}`,
+        { method: "DELETE", headers: { Accept: "application/json" } }
+      );
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Failed to delete ${appname}: ${response.status} ${text}`);
+      }
+      await response.json();
+
+      // Refresh the apps list
+      const appsResp = await fetchJson(`/api/apps?env=${encodeURIComponent(activeEnv)}`);
+      setApps(appsResp);
+
+      const nextClusters = {};
+      for (const [appname, app] of Object.entries(appsResp || {})) {
+        nextClusters[appname] = Array.isArray(app?.clusters) ? app.clusters.map(String) : [];
+      }
+      setClustersByApp(nextClusters);
+
+      // Refresh L4 IPs
+      const appNames = Object.keys(appsResp);
+      const l4Pairs = await Promise.all(
+        appNames.map(async (appname) => {
+          const items = await fetchJson(
+            `/api/apps/${encodeURIComponent(appname)}/l4_ingress?env=${encodeURIComponent(activeEnv)}`,
+          );
+          const ips = uniqStrings((items || []).flatMap((i) => i.allocated_ips || []));
+          return [appname, ips];
+        }),
+      );
+
+      const next = {};
+      for (const [appname, ips] of l4Pairs) next[appname] = ips;
+      setL4IpsByApp(next);
+
+      setError("");
+    } catch (e) {
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div>
       <div className="topbar" style={{ background: bannerColor }}>
@@ -404,10 +549,29 @@ function App() {
 
         <div className="actions">
           {view === "apps" ? (
-            <button className="btn" type="button" onClick={onViewNamespaces}>
-              View Namespaces
-            </button>
+            <>
+              <button className="btn" type="button" onClick={onViewNamespaces}>
+                View Namespaces
+              </button>
+              <button className="btn" type="button" onClick={onViewL4Ingress}>
+                View L4 ingress IPs
+              </button>
+            </>
+          ) : view === "namespaceDetails" ? (
+            <>
+              <button className="btn" type="button" onClick={onBackFromNamespaceDetails}>
+                ← Back to Namespaces
+              </button>
+            </>
           ) : view === "l4ingress" ? (
+            <>
+              <button className="btn" type="button" onClick={onBackToApps}>
+                Back to App
+              </button>
+              <button className="btn" type="button" onClick={onViewNamespaces}>
+                View Namespaces
+              </button>
+            </>
             <button className="btn" type="button" onClick={onBackToApps}>
               Back to App
             </button>
@@ -430,9 +594,14 @@ function App() {
               View Namespaces
             </button>
           ) : (
-            <button className="btn" type="button" onClick={onViewL4Ingress}>
-              View L4 ingress IPs
-            </button>
+            <>
+              <button className="btn" type="button" onClick={onBackToApps}>
+                Back to App
+              </button>
+              <button className="btn" type="button" onClick={onViewL4Ingress}>
+                View L4 ingress IPs
+              </button>
+            </>
           )}
 
           {view === "apps" ? (
@@ -461,6 +630,13 @@ function App() {
             selectedApps={selectedApps}
             onToggleRow={toggleRow}
             onSelectAll={onSelectAllFromFiltered}
+            onDeleteApp={deleteApp}
+            onViewDetails={(appname) => openNamespaces(appname, true)}
+          />
+        ) : view === "namespaceDetails" ? (
+          <NamespaceDetails
+            namespace={detailNamespace}
+            namespaceName={detailNamespaceName}
           />
         ) : view === "namespaces" ? (
           <div>
@@ -469,6 +645,11 @@ function App() {
             </div>
             <NamespacesTable
               namespaces={namespaces}
+              selectedNamespaces={selectedNamespaces}
+              onToggleNamespace={toggleNamespace}
+              onSelectAll={onSelectAllNamespaces}
+              onDeleteNamespace={deleteNamespace}
+              onViewDetails={viewNamespaceDetails}
             />
           </div>
         ) : view === "l4ingress" ? (
