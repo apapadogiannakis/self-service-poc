@@ -7,6 +7,19 @@ async function fetchJson(url) {
   return await res.json();
 }
 
+async function postJson(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+  }
+  return await res.json();
+}
+
 function parseUiRouteFromLocation() {
   try {
     const path = window.location.pathname || "/";
@@ -35,6 +48,11 @@ function buildUiUrl({ view, env, appname }) {
   return `/apps${q}`;
 }
 
+function isHomePath() {
+  const path = (window.location.pathname || "/").toLowerCase();
+  return path === "/home" || path === "/home/";
+}
+
 function pushUiUrl(next, replace = false) {
   const url = buildUiUrl(next);
   const state = { view: next.view, env: next.env || "", appname: next.appname || "" };
@@ -60,6 +78,12 @@ function App() {
   const [envKeys, setEnvKeys] = React.useState([]);
   const [activeEnv, setActiveEnv] = React.useState("");
 
+  const [workspace, setWorkspace] = React.useState("");
+  const [requestsRepo, setRequestsRepo] = React.useState("");
+  const [processedRepo, setProcessedRepo] = React.useState("");
+  const [persistedConfigComplete, setPersistedConfigComplete] = React.useState(false);
+  const [topTab, setTopTab] = React.useState("Home");
+
   const [apps, setApps] = React.useState({});
   const [clustersByApp, setClustersByApp] = React.useState({});
   const [selectedNamespaces, setSelectedNamespaces] = React.useState(() => new Set());
@@ -79,6 +103,28 @@ function App() {
   const [error, setError] = React.useState("");
   const [pendingRoute, setPendingRoute] = React.useState(() => parseUiRouteFromLocation());
 
+  const configComplete = persistedConfigComplete;
+
+  function setTopTabWithUrl(nextTab) {
+    setTopTab(nextTab);
+
+    if (nextTab === "Home") {
+      window.history.pushState({ topTab: "Home" }, "", "/home");
+      return;
+    }
+
+    if (!configComplete) {
+      setTopTab("Home");
+      window.history.pushState({ topTab: "Home" }, "", "/home");
+      return;
+    }
+
+    if (nextTab === "Request provisioning") {
+      pushUiUrl({ view, env: activeEnv, appname: detailAppName }, false);
+      return;
+    }
+  }
+
   React.useEffect(() => {
     let cancelled = false;
 
@@ -87,16 +133,21 @@ function App() {
         setLoading(true);
         setError("");
 
-        const [deploymentType, user, envList] = await Promise.all([
+        const [deploymentType, user, envList, cfg] = await Promise.all([
           fetchJson("/api/deployment_type"),
           fetchJson("/api/current-user"),
           fetchJson("/api/envlist"),
+          fetchJson("/api/config"),
         ]);
 
         if (cancelled) return;
 
         setDeployment(deploymentType);
         setCurrentUser(user.user || "");
+
+        setWorkspace(cfg?.workspace || "");
+        setRequestsRepo(cfg?.requestsRepo || "");
+        setProcessedRepo(cfg?.processedRepo || "");
 
         const keys = Object.keys(envList);
         setEnvKeys(keys);
@@ -106,6 +157,20 @@ function App() {
         setPendingRoute(initial);
         setActiveEnv(initialEnv);
         pushUiUrl({ view: initial.view, env: initialEnv, appname: initial.appname }, true);
+
+        const isComplete = Boolean(
+          (cfg?.workspace || "").trim() && (cfg?.requestsRepo || "").trim() && (cfg?.processedRepo || "").trim()
+        );
+        setPersistedConfigComplete(isComplete);
+
+        if (isHomePath()) {
+          setTopTab("Home");
+        } else {
+          setTopTab(isComplete ? "Request provisioning" : "Home");
+          if (!isComplete) {
+            window.history.replaceState({ topTab: "Home" }, "", "/home");
+          }
+        }
       } catch (e) {
         if (!cancelled) setError(e?.message || String(e));
       } finally {
@@ -117,6 +182,12 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!configComplete && topTab !== "Home") {
+      setTopTab("Home");
+    }
+  }, [configComplete, topTab]);
 
   React.useEffect(() => {
     if (!activeEnv) return;
@@ -301,6 +372,11 @@ function App() {
 
   React.useEffect(() => {
     function onPopState() {
+      if (isHomePath()) {
+        setTopTab("Home");
+        return;
+      }
+
       const r = parseUiRouteFromLocation();
       setPendingRoute(r);
       if (r.env) setActiveEnv(r.env);
@@ -513,6 +589,33 @@ function App() {
     }
   }
 
+  async function onSaveConfig() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const saved = await postJson("/api/config", {
+        workspace,
+        requestsRepo,
+        processedRepo,
+      });
+
+      setWorkspace(saved?.workspace || "");
+      setRequestsRepo(saved?.requestsRepo || "");
+      setProcessedRepo(saved?.processedRepo || "");
+
+      const isComplete = Boolean(
+        (saved?.workspace || "").trim() && (saved?.requestsRepo || "").trim() && (saved?.processedRepo || "").trim(),
+      );
+      setPersistedConfigComplete(isComplete);
+      if (isComplete) setTopTab("Request provisioning");
+    } catch (e) {
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <AppView
       bannerColor={bannerColor}
@@ -524,6 +627,16 @@ function App() {
       loading={loading}
       view={view}
       error={error}
+      topTab={topTab}
+      configComplete={configComplete}
+      onTopTabChange={setTopTabWithUrl}
+      workspace={workspace}
+      setWorkspace={setWorkspace}
+      requestsRepo={requestsRepo}
+      setRequestsRepo={setRequestsRepo}
+      processedRepo={processedRepo}
+      setProcessedRepo={setProcessedRepo}
+      onSaveConfig={onSaveConfig}
       onEnvClick={(env) => {
         setActiveEnv(env);
         pushUiUrl({ view: "apps", env, appname: "" }, false);
