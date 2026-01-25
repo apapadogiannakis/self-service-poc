@@ -386,6 +386,112 @@ PULL_REQUESTS_BY_ENV_AND_APP: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
 }
 
 
+EGRESS_IPS_BY_ENV_AND_APP: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
+    "dev": {
+        "app1": [
+            {
+                "selector": "app=app1-dev",
+                "cluster": "01",
+                "allocation_id": "egress-ip-01-dev-001",
+                "allocated_ips": ["10.0.1.100", "10.0.1.101"],
+                "link": "https://console.dev-cluster-01.com/egress/egress-ip-01-dev-001"
+            },
+            {
+                "selector": "app=app1-dev-ns2",
+                "cluster": "04",
+                "allocation_id": "egress-ip-04-dev-002",
+                "allocated_ips": ["10.0.4.102"],
+                "link": "https://console.dev-cluster-04.com/egress/egress-ip-04-dev-002"
+            }
+        ],
+        "app2": [
+            {
+                "selector": "app=app2-dev",
+                "cluster": "07",
+                "allocation_id": "egress-ip-07-dev-003",
+                "allocated_ips": ["10.0.7.103", "10.0.7.104"],
+                "link": "https://console.dev-cluster-07.com/egress/egress-ip-07-dev-003"
+            }
+        ]
+    },
+    "qa": {
+        "app1": [
+            {
+                "selector": "app=app1-qa",
+                "cluster": "11",
+                "allocation_id": "egress-ip-11-qa-001",
+                "allocated_ips": ["10.1.11.100"],
+                "link": "https://console.qa-cluster-11.com/egress/egress-ip-11-qa-001"
+            },
+            {
+                "selector": "app=app1-qa-ns2",
+                "cluster": "12",
+                "allocation_id": "egress-ip-12-qa-002",
+                "allocated_ips": ["10.1.12.101", "10.1.12.102"],
+                "link": "https://console.qa-cluster-12.com/egress/egress-ip-12-qa-002"
+            },
+            {
+                "selector": "app=app1-qa-ns3",
+                "cluster": "06",
+                "allocation_id": "egress-ip-06-qa-003",
+                "allocated_ips": ["10.1.6.103"],
+                "link": "https://console.qa-cluster-06.com/egress/egress-ip-06-qa-003"
+            }
+        ],
+        "app2": [
+            {
+                "selector": "app=app2-qa",
+                "cluster": "01",
+                "allocation_id": "egress-ip-01-qa-004",
+                "allocated_ips": ["10.1.1.104"],
+                "link": "https://console.qa-cluster-01.com/egress/egress-ip-01-qa-004"
+            },
+            {
+                "selector": "app=app2-qa-ns2",
+                "cluster": "04",
+                "allocation_id": "egress-ip-04-qa-005",
+                "allocated_ips": ["10.1.4.105", "10.1.4.106"],
+                "link": "https://console.qa-cluster-04.com/egress/egress-ip-04-qa-005"
+            }
+        ]
+    },
+    "prd": {
+        "app1": [
+            {
+                "selector": "app=app1-prod",
+                "cluster": "01",
+                "allocation_id": "egress-ip-01-prd-001",
+                "allocated_ips": ["10.2.1.100", "10.2.1.101", "10.2.1.102"],
+                "link": "https://console.prod-cluster-01.com/egress/egress-ip-01-prd-001"
+            },
+            {
+                "selector": "app=app1-prod-ns2",
+                "cluster": "04",
+                "allocation_id": "egress-ip-04-prd-002",
+                "allocated_ips": ["10.2.4.103", "10.2.4.104"],
+                "link": "https://console.prod-cluster-04.com/egress/egress-ip-04-prd-002"
+            },
+            {
+                "selector": "app=app1-prod-ns3",
+                "cluster": "07",
+                "allocation_id": "egress-ip-07-prd-003",
+                "allocated_ips": ["10.2.7.105"],
+                "link": "https://console.prod-cluster-07.com/egress/egress-ip-07-prd-003"
+            }
+        ],
+        "app2": [
+            {
+                "selector": "app=app2-prod",
+                "cluster": "12",
+                "allocation_id": "egress-ip-12-prd-004",
+                "allocated_ips": ["10.2.12.106", "10.2.12.107"],
+                "link": "https://console.prod-cluster-12.com/egress/egress-ip-12-prd-004"
+            }
+        ]
+    }
+}
+
+
 def _require_env(env: Optional[str]) -> str:
     if not env:
         raise HTTPException(status_code=400, detail="Missing required query parameter: env")
@@ -523,3 +629,7 @@ def delete_app(appname: str, env: Optional[str] = None):
     deleted_data["deleted"] = True
     return deleted_data
 
+@router.get("/apps/{appname}/egress_ips")
+def get_egress_ips(appname: str, env: Optional[str] = None):
+    env = _require_env(env)
+    return EGRESS_IPS_BY_ENV_AND_APP.get(env, {}).get(appname, [])

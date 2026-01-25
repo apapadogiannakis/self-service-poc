@@ -13,13 +13,14 @@ function parseUiRouteFromLocation() {
     const params = new URLSearchParams(window.location.search || "");
     const env = params.get("env") || "";
 
-    const m = path.match(/^\/apps(?:\/([^/]+)(?:\/(namespaces|l4_ingress))?)?\/?$/);
+    const m = path.match(/^\/apps(?:\/([^/]+)(?:\/(namespaces|l4_ingress|egress_ips))?)?\/$/);
     if (!m) return { env, view: "apps", appname: "" };
 
     const appname = m[1] ? decodeURIComponent(m[1]) : "";
     const tail = m[2] || "";
     if (tail === "namespaces") return { env, view: "namespaces", appname };
     if (tail === "l4_ingress") return { env, view: "l4ingress", appname };
+    if (tail === "egress_ips") return { env, view: "egressips", appname };
     return { env, view: "apps", appname: "" };
   } catch {
     return { env: "", view: "apps", appname: "" };
@@ -30,6 +31,7 @@ function buildUiUrl({ view, env, appname }) {
   const q = env ? `?env=${encodeURIComponent(env)}` : "";
   if (view === "namespaces" && appname) return `/apps/${encodeURIComponent(appname)}/namespaces${q}`;
   if (view === "l4ingress" && appname) return `/apps/${encodeURIComponent(appname)}/l4_ingress${q}`;
+  if (view === "egressips" && appname) return `/apps/${encodeURIComponent(appname)}/egress_ips${q}`;
   return `/apps${q}`;
 }
 
@@ -59,16 +61,19 @@ function App() {
   const [activeEnv, setActiveEnv] = React.useState("");
 
   const [apps, setApps] = React.useState({});
-  const [l4IpsByApp, setL4IpsByApp] = React.useState({});
   const [clustersByApp, setClustersByApp] = React.useState({});
-  const [selectedApps, setSelectedApps] = React.useState(() => new Set());
   const [selectedNamespaces, setSelectedNamespaces] = React.useState(() => new Set());
+  const [l4IpsByApp, setL4IpsByApp] = React.useState({});
+  const [egressIpsByApp, setEgressIpsByApp] = React.useState({});
+  const [selectedApps, setSelectedApps] = React.useState(new Set());
   const [view, setView] = React.useState("apps");
   const [detailAppName, setDetailAppName] = React.useState("");
   const [detailNamespace, setDetailNamespace] = React.useState(null);
   const [detailNamespaceName, setDetailNamespaceName] = React.useState("");
   const [namespaces, setNamespaces] = React.useState({});
   const [l4IngressItems, setL4IngressItems] = React.useState([]);
+  const [egressIpItems, setEgressIpItems] = React.useState([]);
+  const [selectedEgressIps, setSelectedEgressIps] = React.useState(new Set());
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
@@ -137,6 +142,8 @@ function App() {
         setDetailAppName("");
         setNamespaces({});
         setL4IngressItems([]);
+        setEgressIpItems([]);
+        setSelectedEgressIps(new Set());
 
         const appNames = Object.keys(appsResp);
 
@@ -156,6 +163,22 @@ function App() {
         for (const [appname, ips] of l4Pairs) next[appname] = ips;
         setL4IpsByApp(next);
 
+        const egressPairs = await Promise.all(
+          appNames.map(async (appname) => {
+            const items = await fetchJson(
+              `/api/apps/${encodeURIComponent(appname)}/egress_ips?env=${encodeURIComponent(activeEnv)}`,
+            );
+            const ips = uniqStrings((items || []).flatMap((i) => i.allocated_ips || []));
+            return [appname, ips];
+          }),
+        );
+
+        if (cancelled) return;
+
+        const nextEgress = {};
+        for (const [appname, ips] of egressPairs) nextEgress[appname] = ips;
+        setEgressIpsByApp(nextEgress);
+
         const pr = pendingRoute;
         if (pr && (pr.env || "").toUpperCase() === (activeEnv || "").toUpperCase()) {
           if (pr.view === "namespaces" && pr.appname) {
@@ -164,6 +187,9 @@ function App() {
           } else if (pr.view === "l4ingress" && pr.appname) {
             setPendingRoute({ env: activeEnv, view: "apps", appname: "" });
             await openL4Ingress(pr.appname, false);
+          } else if (pr.view === "egressips" && pr.appname) {
+            setPendingRoute({ env: activeEnv, view: "apps", appname: "" });
+            await openEgressIps(pr.appname, false);
           } else {
             setPendingRoute({ env: activeEnv, view: "apps", appname: "" });
           }
@@ -228,16 +254,50 @@ function App() {
     }
   }
 
+  async function openEgressIps(appname, push = true) {
+    if (!appname) return;
+    try {
+      setLoading(true);
+      setError("");
+      const items = await fetchJson(
+        `/api/apps/${encodeURIComponent(appname)}/egress_ips?env=${encodeURIComponent(activeEnv)}`,
+      );
+      setDetailAppName(appname);
+      setEgressIpItems(items || []);
+      setNamespaces({});
+      setView("egressips");
+      if (push) pushUiUrl({ view: "egressips", env: activeEnv, appname }, false);
+    } catch (e) {
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onViewNamespaces() {
+    const appname = getDetailOrSelectedApp();
+    if (!appname) return;
+    await openNamespaces(appname, true);
+  }
+
   function onBackToApps() {
     setView("apps");
     setDetailAppName("");
     setNamespaces({});
     setL4IngressItems([]);
     setSelectedNamespaces(new Set());
+    setEgressIpItems([]);
+    setSelectedEgressIps(new Set());
     setError("");
     pushUiUrl({ view: "apps", env: activeEnv, appname: "" }, false);
   }
 
+
+  async function onViewEgressIps() {
+    const appname = getDetailOrSelectedApp();
+    if (!appname) return;
+    await openEgressIps(appname, true);
+  }
 
   React.useEffect(() => {
     function onPopState() {
@@ -250,12 +310,36 @@ function App() {
         setDetailAppName("");
         setNamespaces({});
         setL4IngressItems([]);
+        setEgressIpItems([]);
+        setSelectedEgressIps(new Set());
       }
     }
 
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, [envKeys, activeEnv]);
+
+  function toggleSelectAll(checked) {
+    if (checked) {
+      setSelectedApps(new Set(appRows.map((a) => a.appname)));
+    } else {
+      setSelectedApps(new Set());
+    }
+  }
+
+  function onSelectAllEgressIps(checked, indices) {
+    if (checked) setSelectedEgressIps(new Set(indices));
+    else setSelectedEgressIps(new Set());
+  }
+
+  function toggleEgressIp(index, checked) {
+    setSelectedEgressIps((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(index);
+      else next.delete(index);
+      return next;
+    });
+  }
 
   function toggleRow(appname, checked) {
     setSelectedApps((prev) => {
@@ -488,6 +572,27 @@ function App() {
                 View Namespaces
               </button>
             </>
+            <button className="btn" type="button" onClick={onBackToApps}>
+              Back to App
+            </button>
+          ) : view === "egressips" ? (
+            <button className="btn" type="button" onClick={onBackToApps}>
+              Back to App
+            </button>
+          ) : (
+            <button className="btn" type="button" onClick={onBackToApps}>
+              Back to App
+            </button>
+          )}
+
+          {view === "l4ingress" ? (
+            <button className="btn" type="button" onClick={onViewNamespaces}>
+              View Namespaces
+            </button>
+          ) : view === "egressips" ? (
+            <button className="btn" type="button" onClick={onViewNamespaces}>
+              View Namespaces
+            </button>
           ) : (
             <>
               <button className="btn" type="button" onClick={onBackToApps}>
@@ -498,6 +603,20 @@ function App() {
               </button>
             </>
           )}
+
+          {view === "apps" ? (
+            <button className="btn" type="button" onClick={onViewEgressIps}>
+              View Egress IPs
+            </button>
+          ) : view === "l4ingress" ? (
+            <button className="btn" type="button" onClick={onViewEgressIps}>
+              View Egress IPs
+            </button>
+          ) : view === "egressips" ? (
+            <button className="btn" type="button" onClick={onViewL4Ingress}>
+              View L4 ingress IPs
+            </button>
+          ) : null}
         </div>
 
         {error ? <div className="status">Error: {error}</div> : null}
@@ -507,6 +626,7 @@ function App() {
             rows={appRows}
             clustersByApp={clustersByApp}
             l4IpsByApp={l4IpsByApp}
+            egressIpsByApp={egressIpsByApp}
             selectedApps={selectedApps}
             onToggleRow={toggleRow}
             onSelectAll={onSelectAllFromFiltered}
@@ -532,13 +652,25 @@ function App() {
               onViewDetails={viewNamespaceDetails}
             />
           </div>
-        ) : (
+        ) : view === "l4ingress" ? (
           <div>
             <div style={{ marginTop: 8, marginBottom: 10, fontWeight: 600 }}>
               {`L4 ingress IPs allocated in different cluster for ${detailAppName || ""}`}
             </div>
             <L4IngressTable
               items={l4IngressItems}
+            />
+          </div>
+        ) : (
+          <div>
+            <div style={{ marginTop: 8, marginBottom: 10, fontWeight: 600 }}>
+              {`Egress IPs allocated in different cluster for ${detailAppName || ""}`}
+            </div>
+            <EgressIpTable
+              items={egressIpItems}
+              selectedItems={selectedEgressIps}
+              onToggleRow={toggleEgressIp}
+              onSelectAll={onSelectAllEgressIps}
             />
           </div>
         )}

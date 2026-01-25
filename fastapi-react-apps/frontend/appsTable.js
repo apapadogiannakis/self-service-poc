@@ -1,4 +1,4 @@
-function AppsTable({ rows, clustersByApp, l4IpsByApp, selectedApps, onToggleRow, onSelectAll, onDeleteApp, onViewDetails }) {
+function AppsTable({ rows, clustersByApp, l4IpsByApp, egressIpsByApp, selectedApps, onToggleRow, onSelectAll, onDeleteApp, onViewDetails }) {
   const [filters, setFilters] = React.useState({
     appname: "",
     description: "",
@@ -6,6 +6,7 @@ function AppsTable({ rows, clustersByApp, l4IpsByApp, selectedApps, onToggleRow,
     clusters: "",
     namespaces: "",
     l4ips: "",
+    egressips: "",
   });
 
   function formatValue(val) {
@@ -28,6 +29,7 @@ function AppsTable({ rows, clustersByApp, l4IpsByApp, selectedApps, onToggleRow,
     const clusters = formatValue((clustersByApp?.[a?.appname] || []).join(", ")).toLowerCase();
     const namespacesCount = formatValue(a?.totalns).toLowerCase();
     const l4ips = formatValue((l4IpsByApp?.[a?.appname] || []).join(", ")).toLowerCase();
+    const egressips = formatValue((egressIpsByApp?.[a?.appname] || []).join(", ")).toLowerCase();
 
     return (
       appname.includes((filters.appname || "").toLowerCase()) &&
@@ -35,7 +37,8 @@ function AppsTable({ rows, clustersByApp, l4IpsByApp, selectedApps, onToggleRow,
       managedby.includes((filters.managedby || "").toLowerCase()) &&
       clusters.includes((filters.clusters || "").toLowerCase()) &&
       namespacesCount.includes((filters.namespaces || "").toLowerCase()) &&
-      l4ips.includes((filters.l4ips || "").toLowerCase())
+      l4ips.includes((filters.l4ips || "").toLowerCase()) &&
+      egressips.includes((filters.egressips || "").toLowerCase())
     );
   });
 
@@ -61,6 +64,7 @@ function AppsTable({ rows, clustersByApp, l4IpsByApp, selectedApps, onToggleRow,
             <th>Namespaces</th>
             <th>L4 IPs</th>
             <th>Actions</th>
+            <th>Egress IPs</th>
           </tr>
           <tr>
             <th></th>
@@ -107,6 +111,13 @@ function AppsTable({ rows, clustersByApp, l4IpsByApp, selectedApps, onToggleRow,
               />
             </th>
             <th></th>
+            <th>
+              <input
+                className="filterInput"
+                value={filters.egressips}
+                onChange={(e) => setFilters((p) => ({ ...p, egressips: e.target.value }))}
+              />
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -157,6 +168,7 @@ function AppsTable({ rows, clustersByApp, l4IpsByApp, selectedApps, onToggleRow,
                     </button>
                   </div>
                 </td>
+                <td>{(egressIpsByApp?.[a.appname] || []).join(", ")}</td>
               </tr>
             ))
           )}
