@@ -91,76 +91,78 @@ function NamespaceDetailsView({ namespace, namespaceName, appname, env, onUpdate
   return (
     <div>
       {/* Centered Namespace Name */}
-      <div style={{ textAlign: 'center', marginBottom: '24px', marginTop: '8px' }}>
-        <h2 style={{ margin: 0, fontSize: '28px', fontWeight: '600', color: '#0d6efd' }}>
-          {namespaceName}
-        </h2>
-        <div style={{ fontSize: '14px', color: 'var(--muted)', marginTop: '4px' }}>
-          Namespace Details
-        </div>
-        <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center', gap: '8px' }}>
-          {!editEnabled ? (
-            <button className="btn btn-primary" type="button" onClick={() => setEditEnabled(true)}>
-              Enable Edit
-            </button>
-          ) : (
-            <>
-              <button
-                className="btn"
-                type="button"
-                onClick={() => {
-                  const initialClusters = Array.isArray(namespace?.clusters) ? namespace.clusters.map(String).join(",") : "";
-                  setDraftClusters(initialClusters);
-                  setDraftManagedByArgo(Boolean(namespace?.need_argo || namespace?.generate_argo_app));
-                  setDraftEgressNameId(namespace?.egress_nameid == null ? "" : String(namespace.egress_nameid));
-                  setDraftReqCpu(namespace?.resources?.requests?.cpu == null ? "" : String(namespace.resources.requests.cpu));
-                  setDraftReqMemory(namespace?.resources?.requests?.memory == null ? "" : String(namespace.resources.requests.memory));
-                  setDraftLimCpu(namespace?.resources?.limits?.cpu == null ? "" : String(namespace.resources.limits.cpu));
-                  setDraftLimMemory(namespace?.resources?.limits?.memory == null ? "" : String(namespace.resources.limits.memory));
-                  setEditEnabled(false);
-                }}
-              >
-                Discard Edits
+      <div style={{ position: 'relative', marginBottom: '24px', marginTop: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+          <div style={{ flex: 1 }} />
+          <div style={{ flex: 2, textAlign: 'center' }}>
+            <h2 style={{ margin: 0, fontSize: '28px', fontWeight: '600', color: '#0d6efd' }}>
+              {`ENV: ${env || ""} APP: ${appname || ""} namespace: ${namespaceName}`}
+            </h2>
+          </div>
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            {!editEnabled ? (
+              <button className="btn btn-primary" type="button" onClick={() => setEditEnabled(true)}>
+                Enable Edit
               </button>
-              <button
-                className="btn btn-primary"
-                type="button"
-                onClick={async () => {
-                  if (typeof onUpdateNamespaceInfo !== "function") {
+            ) : (
+              <>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    const initialClusters = Array.isArray(namespace?.clusters) ? namespace.clusters.map(String).join(",") : "";
+                    setDraftClusters(initialClusters);
+                    setDraftManagedByArgo(Boolean(namespace?.need_argo || namespace?.generate_argo_app));
+                    setDraftEgressNameId(namespace?.egress_nameid == null ? "" : String(namespace.egress_nameid));
+                    setDraftReqCpu(namespace?.resources?.requests?.cpu == null ? "" : String(namespace.resources.requests.cpu));
+                    setDraftReqMemory(namespace?.resources?.requests?.memory == null ? "" : String(namespace.resources.requests.memory));
+                    setDraftLimCpu(namespace?.resources?.limits?.cpu == null ? "" : String(namespace.resources.limits.cpu));
+                    setDraftLimMemory(namespace?.resources?.limits?.memory == null ? "" : String(namespace.resources.limits.memory));
                     setEditEnabled(false);
-                    return;
-                  }
+                  }}
+                >
+                  Discard Edits
+                </button>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={async () => {
+                    if (typeof onUpdateNamespaceInfo !== "function") {
+                      setEditEnabled(false);
+                      return;
+                    }
 
-                  const clusters = draftClusters
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  const egress_nameid = (draftEgressNameId || "").trim();
+                    const clusters = draftClusters
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    const egress_nameid = (draftEgressNameId || "").trim();
 
-                  await onUpdateNamespaceInfo(namespaceName, {
-                    namespace_info: {
-                      clusters,
-                      need_argo: Boolean(draftManagedByArgo),
-                      egress_nameid,
-                    },
-                    resources: {
-                      requests: {
-                        cpu: (draftReqCpu || "").trim(),
-                        memory: (draftReqMemory || "").trim(),
+                    await onUpdateNamespaceInfo(namespaceName, {
+                      namespace_info: {
+                        clusters,
+                        need_argo: Boolean(draftManagedByArgo),
+                        egress_nameid,
                       },
-                      limits: {
-                        cpu: (draftLimCpu || "").trim(),
-                        memory: (draftLimMemory || "").trim(),
+                      resources: {
+                        requests: {
+                          cpu: (draftReqCpu || "").trim(),
+                          memory: (draftReqMemory || "").trim(),
+                        },
+                        limits: {
+                          cpu: (draftLimCpu || "").trim(),
+                          memory: (draftLimMemory || "").trim(),
+                        },
                       },
-                    },
-                  });
-                  setEditEnabled(false);
-                }}
-              >
-                Submit
-              </button>
-            </>
-          )}
+                    });
+                    setEditEnabled(false);
+                  }}
+                >
+                  Submit
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
